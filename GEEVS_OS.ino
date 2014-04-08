@@ -5,8 +5,11 @@
 #define CYCLES_PER_SECOND 4
 #define ROUTINES_PER_CYCLE 4
 #define INTERRUPT_PERIOD 1000000/(CYCLES_PER_SECOND*ROUTINES_PER_CYCLE)
+
 //Pin data
 #define SS_PIN 24
+#define MOTOR_R_PIN 14
+#define MOTOR_L_PIN 15
 
 //SPI Values
 #define SPI_WRITE 0x00
@@ -22,11 +25,19 @@
 #define GYRO_OFFESET 512
 #define GYRO_CYCLE 516 * CYCLES_PER_SECOND
 
+//Motor data
+#define MOVE_TURN 1
+#define MOVE_FORWARD 2
+#define IDLE_SPEED 127
+#define BASE_SPEED 64
+
 void (*routines[ROUTINES_PER_CYCLE])();
-int routineIndex = 0;
-volatile int headingRaw, headingDeg = 0;
-volatile long xPos, yPos, xVel, yVel = 0;
-volatile unsigned char pingLock = 0;
+volatile signed int headingRaw = 0;
+volatile unsigned int headingDeg, routineIndex = 0;
+volatile signed long xPos, yPos, xVel, yVel = 0;
+unsigned char pingLock, moveCommand = 0;
+signed int goalHeading = 0;
+
 Ping pingLeft = Ping(0);
 Ping pingCenter = Ping(1);
 Ping pingRight = Ping(2);
@@ -42,7 +53,7 @@ void accelerometer_service ()
   yDelta = SPI.transfer(SPI_IDLE); //Read y
   yDelta |= SPI.transfer(SPI_IDLE) << 8;
   digitalWrite(SS_PIN, 1); //End transmission
-  
+   
   //Update velocity and position
   xVel += xDelta;
   yVel += yDelta;
@@ -73,21 +84,57 @@ void ping_service ()
 
 void motor_service ()
 {
+  unsigned char newSpeed = IDLE_SPEED;
+  signed int headingDelta;
   
+  if (moveCommand == MOVE_FORWARD) //Forward Mode
+  {
+    if (pingCenter.centimeters() >= 1000) //Only move if there is room ahead
+    {
+      newSpeed += BASE_SPEED;
+      if (pingCenter.centimeters() < 2000) //Slow robot near obstacles
+        newSpeed -= BASE_SPEED>>2;
+    } 
+    analogWrite(MOTOR_R_PIN, newSpeed);
+    analogWrite(MOTOR_L_PIN, newSpeed);
+  }
+  else if (moveCommand == MOVE_TURN) //Turn Mode
+  {
+    headingDelta = goalHeading-headingDeg;
+    // > 180 degree turn compensation
+    if (headingDelta > 180)
+      headingDelta = 180-headingDelta;
+    else if (headingDelta < -180)
+      headingDelta = -180-headingDelta;
+        
+    if (headingDelta > 0)
+      newSpeed += BASE_SPEED>>2;
+    else
+      newSpeed -= BASE_SPEED>>2;
+         
+    analogWrite(MOTOR_R_PIN, newSpeed);
+    analogWrite(MOTOR_L_PIN, -newSpeed);
+  }
+  else //Default mode
+  {
+    analogWrite(MOTOR_R_PIN, IDLE_SPEED);
+    analogWrite(MOTOR_L_PIN, IDLE_SPEED);
+  }
 }
 
 void realtime_service_call ()
 {
-  if (routines[routineIndex] != 0)
+  if (routines[routineIndex] != 0) //Only call routine if it exists
     routines[routineIndex]();
-  routineIndex++;
-  if (routineIndex == ROUTINES_PER_CYCLE)
+  routineIndex++; //Advance to next routine
+  if (routineIndex == ROUTINES_PER_CYCLE) //Wrap around at end of cycle
     routineIndex = 0;
 }
 
 void setup ()
 {
   signed int xDelta, yDelta;
+  
   //Configure SPI communication
   pinMode (SS_PIN, OUTPUT);
   digitalWrite(SS_PIN, 1);
