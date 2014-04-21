@@ -30,13 +30,16 @@
 #define MOVE_FORWARD 2
 #define IDLE_SPEED 127
 #define BASE_SPEED 64
+#define ROTATION_DEADZONE 6
+#define POSITION_DEADZONE 10
 
 void (*routines[ROUTINES_PER_CYCLE])();
 volatile signed int headingRaw = 0;
 volatile unsigned int headingDeg, routineIndex = 0;
-volatile signed long xPos, yPos, xVel, yVel = 0;
+volatile signed long sidewaysPos, forwardPos, sidewaysVel, forwardVel, forwardCm, sidewaysCm = 0;
 unsigned char pingLock, moveCommand = 0;
 signed int goalHeading = 0;
+signed long goalPosition = 0;
 
 Ping pingLeft = Ping(0);
 Ping pingCenter = Ping(1);
@@ -55,10 +58,13 @@ void accelerometer_service ()
   digitalWrite(SS_PIN, 1); //End transmission
    
   //Update velocity and position
-  xVel += xDelta;
-  yVel += yDelta;
-  xPos += xVel;
-  yPos += yVel;    
+  sidewaysVel += xDelta;
+  forwardVel += yDelta;
+  sidewaysPos += sidewaysVel;
+  forwardPos += forwardVel;
+  
+  forwardCm = forwardPos * 3826 / 1000;
+  sidewaysCm = sidewaysPos * 3826 / 1000;
 }
 
 void gyro_service ()
@@ -107,9 +113,9 @@ void motor_service ()
     else if (headingDelta < -180)
       headingDelta = -180-headingDelta;
         
-    if (headingDelta > 0)
+    if (headingDelta > ROTATION_DEADZONE)
       newSpeed += BASE_SPEED>>2;
-    else
+    else if (headingDelta < -ROTATION_DEADZONE)
       newSpeed -= BASE_SPEED>>2;
          
     analogWrite(MOTOR_R_PIN, newSpeed);
@@ -134,6 +140,8 @@ void realtime_service_call ()
 void setup ()
 {
   signed int xDelta, yDelta;
+  
+  Serial.begin(9600);
   
   //Configure SPI communication
   pinMode (SS_PIN, OUTPUT);
@@ -172,6 +180,12 @@ void setup ()
 
 void loop()
 {
+  Serial.print("Forward: ");
+  Serial.println(forwardCm, DEC);
+  Serial.print("Angle: ");
+  Serial.println(headingDeg, DEC);
+  Serial.print("Ping 1: ");
+  Serial.println(pingCenter.centimeters(), DEC);
   
 }
 
