@@ -161,11 +161,16 @@ void setup ()
   yDelta = SPI.transfer(SPI_IDLE); //Read y
   yDelta |= SPI.transfer(SPI_IDLE) << 8;
   digitalWrite(SS_PIN, 1); //End transmission
-  delay(1000);
+  delay(1);
   digitalWrite(SS_PIN, 0); //Begin Trasmission
   SPI.transfer(SPI_WRITE&SPI_MULTIBYTE&ACCEL_OFFSET); //Send Address
   SPI.transfer((signed char)-xDelta); //Write x offset
   SPI.transfer((signed char)-yDelta); //Write y offset
+  digitalWrite(SS_PIN, 1); //End transmission
+  delay(1);
+  digitalWrite(SS_PIN, 0); //Begin Trasmission
+  SPI.transfer(SPI_WRITE&0x2D); //Write to power controller
+  SPI.transfer(0x08); //Turn off powersave mode
   digitalWrite(SS_PIN, 1); //End transmission
   
   //Zero Gyro
