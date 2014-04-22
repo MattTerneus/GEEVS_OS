@@ -7,7 +7,7 @@
 #define INTERRUPT_PERIOD 1000000/(CYCLES_PER_SECOND*ROUTINES_PER_CYCLE)
 
 //Pin data
-#define SS_PIN 24
+#define SS_PIN 10
 #define MOTOR_R_PIN 14
 #define MOTOR_L_PIN 15
 
@@ -23,7 +23,7 @@
 
 //Gyro data
 #define GYRO_OFFESET 512
-#define GYRO_CYCLE 516 * CYCLES_PER_SECOND
+#define GYRO_CYCLE 96 * CYCLES_PER_SECOND
 
 //Motor data
 #define MOVE_TURN 1
@@ -38,12 +38,13 @@ volatile signed int headingRaw = 0;
 volatile unsigned int headingDeg, routineIndex = 0;
 volatile signed long sidewaysPos, forwardPos, sidewaysVel, forwardVel, forwardCm, sidewaysCm = 0;
 unsigned char pingLock, moveCommand = 0;
-signed int goalHeading = 0;
+volatile unsigned char testAccel, testGyro = 0;
+volatile signed int goalHeading = 0, headingOffset = 0;
 signed long goalPosition = 0;
 
-Ping pingLeft = Ping(0);
-Ping pingCenter = Ping(1);
-Ping pingRight = Ping(2);
+Ping pingLeft = Ping(2);
+Ping pingCenter = Ping(3);
+Ping pingRight = Ping(4);
 
 
 void accelerometer_service ()
@@ -56,7 +57,9 @@ void accelerometer_service ()
   yDelta = SPI.transfer(SPI_IDLE); //Read y
   yDelta |= SPI.transfer(SPI_IDLE) << 8;
   digitalWrite(SS_PIN, 1); //End transmission
-   
+  
+  testAccel = xDelta;
+  
   //Update velocity and position
   sidewaysVel += xDelta;
   forwardVel += yDelta;
@@ -70,14 +73,15 @@ void accelerometer_service ()
 void gyro_service ()
 {
   int delta;
-  delta = analogRead(0); //Read 10 bit ADC 
-  headingRaw += delta-GYRO_OFFESET; //Adjust heading
+  delta = analogRead(0); //Read 10 bit ADC
+  testGyro = delta;
+  headingRaw += delta+headingOffset; //Adjust heading
   if (headingRaw >= GYRO_CYCLE) //Wrap Overflow
     headingRaw -= GYRO_CYCLE;
   if (headingRaw < 0) //Wrap Underflow
     headingRaw += GYRO_CYCLE;
     
-  headingDeg = ((long)headingRaw * 360) / GYRO_CYCLE; //Update heading in degrees
+  headingDeg = ((long)headingRaw * 360) / (GYRO_CYCLE); //Update heading in degrees
 }
 
 void ping_service ()
@@ -85,7 +89,7 @@ void ping_service ()
   if (!pingLock)
   {
     pingCenter.fire();
-  }  
+  }
 }
 
 void motor_service ()
@@ -100,7 +104,7 @@ void motor_service ()
       newSpeed += BASE_SPEED;
       if (pingCenter.centimeters() < 2000) //Slow robot near obstacles
         newSpeed -= BASE_SPEED>>2;
-    } 
+    }
     analogWrite(MOTOR_R_PIN, newSpeed);
     analogWrite(MOTOR_L_PIN, newSpeed);
   }
@@ -157,12 +161,15 @@ void setup ()
   yDelta = SPI.transfer(SPI_IDLE); //Read y
   yDelta |= SPI.transfer(SPI_IDLE) << 8;
   digitalWrite(SS_PIN, 1); //End transmission
-  delay(1);
+  delay(1000);
   digitalWrite(SS_PIN, 0); //Begin Trasmission
   SPI.transfer(SPI_WRITE&SPI_MULTIBYTE&ACCEL_OFFSET); //Send Address
   SPI.transfer((signed char)-xDelta); //Write x offset
   SPI.transfer((signed char)-yDelta); //Write y offset
   digitalWrite(SS_PIN, 1); //End transmission
+  
+  //Zero Gyro
+  headingOffset = -86;
   
   //Setup real time services
   for (int i = 0; i < ROUTINES_PER_CYCLE; i++)
@@ -180,12 +187,12 @@ void setup ()
 
 void loop()
 {
-  Serial.print("Forward: ");
-  Serial.println(forwardCm, DEC);
-  Serial.print("Angle: ");
-  Serial.println(headingDeg, DEC);
-  Serial.print("Ping 1: ");
-  Serial.println(pingCenter.centimeters(), DEC);
+  Serial.print("Accel: ");
+  Serial.println(testAccel, DEC);
+  //Serial.print("Gyro: ");
+  //Serial.println(headingRaw, DEC);
   
 }
+
+
 
