@@ -8,18 +8,19 @@
 
 //Pin data
 #define SS_PIN 10
-#define MOTOR_R_PIN 14
-#define MOTOR_L_PIN 15
+#define MOTOR_R_PIN 5
+#define MOTOR_L_PIN 6
 
 //SPI Values
 #define SPI_WRITE 0x00
 #define SPI_READ 0x80
 #define SPI_MULTIBYTE 0x40
-#define SPI_IDLE 0xFF
+#define SPI_IDLE 0x00
 
 //Accelerometer Values
 #define ACCEL_OFFSET 0x1E
 #define ACCEL_DATA 0x32
+#define DATA_FORMAT 0x31
 
 //Gyro data
 #define GYRO_OFFESET 512
@@ -29,7 +30,7 @@
 #define MOVE_TURN 1
 #define MOVE_FORWARD 2
 #define IDLE_SPEED 127
-#define BASE_SPEED 64
+#define BASE_SPEED 32
 #define ROTATION_DEADZONE 6
 #define POSITION_DEADZONE 10
 
@@ -38,7 +39,7 @@ volatile signed int headingRaw = 0;
 volatile unsigned int headingDeg, routineIndex = 0;
 volatile signed long sidewaysPos, forwardPos, sidewaysVel, forwardVel, forwardCm, sidewaysCm = 0;
 unsigned char pingLock, moveCommand = 0;
-volatile unsigned char testAccel, testGyro = 0;
+volatile unsigned int testAccel, testGyro = 0;
 volatile signed int goalHeading = 0, headingOffset = 0;
 signed long goalPosition = 0;
 
@@ -51,6 +52,7 @@ void accelerometer_service ()
 {
   int xDelta, yDelta;
   digitalWrite(SS_PIN, 0); //Begin Trasmission
+  delay(1);
   SPI.transfer(SPI_READ&SPI_MULTIBYTE&ACCEL_DATA); //Send Address
   xDelta = SPI.transfer(SPI_IDLE); //Read X
   xDelta |= SPI.transfer(SPI_IDLE) << 8;
@@ -99,10 +101,10 @@ void motor_service ()
   
   if (moveCommand == MOVE_FORWARD) //Forward Mode
   {
-    if (pingCenter.centimeters() >= 1000) //Only move if there is room ahead
+    if (pingCenter.centimeters() >= 100) //Only move if there is room ahead
     {
       newSpeed += BASE_SPEED;
-      if (pingCenter.centimeters() < 2000) //Slow robot near obstacles
+      if (pingCenter.centimeters() < 150) //Slow robot near obstacles
         newSpeed -= BASE_SPEED>>2;
     }
     analogWrite(MOTOR_R_PIN, newSpeed);
@@ -146,16 +148,20 @@ void setup ()
   signed int xDelta, yDelta;
   
   Serial.begin(9600);
+  pinMode (MOTOR_R_PIN, OUTPUT);
+  pinMode (MOTOR_L_PIN, OUTPUT);
   
   //Configure SPI communication
+  SPI.begin();
+  SPI.setDataMode(3);
   pinMode (SS_PIN, OUTPUT);
   digitalWrite(SS_PIN, 1);
-  SPI.setDataMode(3);
-  SPI.begin();
   
   //Zero Accelerometer
+  /*
   digitalWrite(SS_PIN, 0); //Begin Trasmission
   SPI.transfer(SPI_READ&SPI_MULTIBYTE&ACCEL_DATA); //Send Address
+  delay(1);
   xDelta = SPI.transfer(SPI_IDLE); //Read X
   xDelta |= SPI.transfer(SPI_IDLE) << 8;
   yDelta = SPI.transfer(SPI_IDLE); //Read y
@@ -163,16 +169,22 @@ void setup ()
   digitalWrite(SS_PIN, 1); //End transmission
   delay(1);
   digitalWrite(SS_PIN, 0); //Begin Trasmission
+  delay(1);
   SPI.transfer(SPI_WRITE&SPI_MULTIBYTE&ACCEL_OFFSET); //Send Address
   SPI.transfer((signed char)-xDelta); //Write x offset
   SPI.transfer((signed char)-yDelta); //Write y offset
+  digitalWrite(SS_PIN, 1); //End transmission
+  delay(1);
+  */
+  digitalWrite(SS_PIN, 0); //Begin Trasmission
+  SPI.transfer(SPI_WRITE&DATA_FORMAT); //Write to power controller
+  SPI.transfer(0x01); //Turn off powersave mode
   digitalWrite(SS_PIN, 1); //End transmission
   delay(1);
   digitalWrite(SS_PIN, 0); //Begin Trasmission
   SPI.transfer(SPI_WRITE&0x2D); //Write to power controller
   SPI.transfer(0x08); //Turn off powersave mode
   digitalWrite(SS_PIN, 1); //End transmission
-  
   //Zero Gyro
   headingOffset = -86;
   
@@ -192,11 +204,10 @@ void setup ()
 
 void loop()
 {
-  Serial.print("Accel: ");
-  Serial.println(testAccel, DEC);
-  //Serial.print("Gyro: ");
-  //Serial.println(headingRaw, DEC);
-  
+  moveCommand = MOVE_FORWARD;
+  delay(2000);
+  moveCommand = 0;
+  while(1);
 }
 
 
