@@ -200,4 +200,8 @@ void loop()
 }
 
 
-// TEST COMMIT FROM KARCH
+/*
+  Sample code from http://www.brainstemeducation.com/arduino_jaguar
+  Sample code from https://bitbucket.org/kc8nod/arduino-jaguar
+*/
+
