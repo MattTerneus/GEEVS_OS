@@ -53,7 +53,6 @@ void accelerometer_service ()
 {
   int xDelta, yDelta;
   digitalWrite(SS_PIN, 0); //Begin Trasmission
-  delay(1);
   SPI.transfer(SPI_READ&SPI_MULTIBYTE&ACCEL_DATA); //Send Address
   xDelta = SPI.transfer(SPI_IDLE); //Read X
   xDelta |= SPI.transfer(SPI_IDLE) << 8;
