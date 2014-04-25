@@ -1,6 +1,7 @@
 #include <TimerOne.h>
 #include <Ping.h>
 #include <SPI.h>
+
 //System Values
 #define CYCLES_PER_SECOND 4
 #define ROUTINES_PER_CYCLE 4
@@ -27,50 +28,30 @@
 #define GYRO_CYCLE 2048
 
 //Motor data
+#define MOVE_IDLE 0
 #define MOVE_TURN 1
 #define MOVE_FORWARD 2
 #define IDLE_SPEED 47
-#define BASE_SPEED_R 7
-#define BASE_SPEED_L 8
+#define BASE_SPEED_R 9
+#define BASE_SPEED_L 9
 #define ROTATION_DEADZONE 6
-#define POSITION_DEADZONE 10
+
 
 void (*routines[ROUTINES_PER_CYCLE])();
 volatile signed int headingRaw = 0;
 volatile unsigned int headingDeg, routineIndex = 0;
-volatile signed long sidewaysPos, forwardPos, sidewaysVel, forwardVel, forwardCm, sidewaysCm = 0;
 unsigned char pingLock, moveCommand = 0;
-volatile unsigned int testAccel, testGyro = 0;
 volatile signed int goalHeading = 0, headingOffset = 0;
 signed long goalPosition = 0;
-volatile char interruptCount, interruptFlag = 0;
+volatile unsigned long distanceTicks = 0;
+volatile char interruptCount, interruptFlag, distanceReset, moveComplete = 0;
+unsigned char currentSpeedR = IDLE_SPEED, currentSpeedL = IDLE_SPEED;
+unsigned int commands[8];
+unsigned char commandID = 0;
 
 Ping pingLeft = Ping(2);
 Ping pingCenter = Ping(3);
 Ping pingRight = Ping(4);
-
-void accelerometer_service ()
-{
-  int xDelta, yDelta;
-  digitalWrite(SS_PIN, 0); //Begin Trasmission
-  SPI.transfer(SPI_READ&SPI_MULTIBYTE&ACCEL_DATA); //Send Address
-  xDelta = SPI.transfer(SPI_IDLE); //Read X
-  xDelta |= SPI.transfer(SPI_IDLE) << 8;
-  yDelta = SPI.transfer(SPI_IDLE); //Read y
-  yDelta |= SPI.transfer(SPI_IDLE) << 8;
-  digitalWrite(SS_PIN, 1); //End transmission
-  
-  testAccel = xDelta;
-  
-  //Update velocity and position
-  sidewaysVel += xDelta;
-  forwardVel += yDelta;
-  sidewaysPos += sidewaysVel;
-  forwardPos += forwardVel;
-  
-  forwardCm = forwardPos * 3826 / 1000;
-  sidewaysCm = sidewaysPos * 3826 / 1000;
-}
 
 void gyro_service ()
 {
@@ -80,7 +61,6 @@ void gyro_service ()
   {
      delta = 0; 
   }
-  testGyro = delta;
   headingRaw += delta; //Adjust heading
   if (headingRaw >= GYRO_CYCLE) //Wrap Overflow
     headingRaw -= GYRO_CYCLE;
@@ -106,40 +86,81 @@ void motor_service ()
   
   if (moveCommand == MOVE_FORWARD) //Forward Mode
   {
-    if (pingCenter.centimeters() >= 100) //Only move if there is room ahead
+    if (distanceReset == 1)
     {
-      newSpeedR = IDLE_SPEED - BASE_SPEED_R;
-      newSpeedL = IDLE_SPEED + BASE_SPEED_L;
-      if (pingCenter.centimeters() < 150) //Slow robot near obstacles
+      distanceTicks = 0;
+      distanceReset = 0;  
+    }
+    
+    if (distanceTicks < goalPosition)
+    {
+      if (pingCenter.centimeters() >= 100) //Only move if there is room ahead
       {
-        newSpeedR = IDLE_SPEED - (BASE_SPEED_R>>1);
-        newSpeedL = IDLE_SPEED + (BASE_SPEED_L>>1);
+        newSpeedR = IDLE_SPEED - BASE_SPEED_R;
+        newSpeedL = IDLE_SPEED + BASE_SPEED_L;
+      }
+      else
+      {
+        //obstacle entered path 
       }
     }
-    analogWrite(MOTOR_R_PIN,newSpeedR);
-    analogWrite(MOTOR_L_PIN,newSpeedL);
+    else
+    {
+      //Manuever complete
+      moveCommand = MOVE_IDLE;
+      moveComplete = 1;
+      
+    }
+    
+    if (newSpeedR > currentSpeedR)
+      currentSpeedR++;
+    else if (newSpeedR < currentSpeedR)
+      currentSpeedR--;
+    if (newSpeedL > currentSpeedL)
+      currentSpeedL++;
+    else if (newSpeedL < currentSpeedL)
+      currentSpeedL--;
+      
+    analogWrite(MOTOR_R_PIN,currentSpeedR);
+    analogWrite(MOTOR_L_PIN,currentSpeedL); 
   }
-  else if (moveCommand == MOVE_TURN) //Turn Mode
+  else 
   {
-    headingDelta = goalHeading-headingDeg;
-    // > 180 degree turn compensation
-    if (headingDelta > 180)
-      headingDelta = 180-headingDelta;
-    else if (headingDelta < -180)
-      headingDelta = -180-headingDelta;
+    distanceReset = 1;
+    if (moveCommand == MOVE_TURN) //Turn Mode
+    {
+      headingDelta = goalHeading-headingDeg;
+      // > 180 degree turn compensation
+      if (headingDelta > 180)
+        headingDelta = 180-headingDelta;
+      else if (headingDelta < -180)
+        headingDelta = -180-headingDelta;
         
-    if (headingDelta > ROTATION_DEADZONE)
-      newSpeedR += BASE_SPEED_R>>2;
-    else if (headingDelta < -ROTATION_DEADZONE)
-      newSpeedR -= BASE_SPEED_R>>2;
+      if (headingDelta > ROTATION_DEADZONE)
+      {
+        newSpeedR = IDLE_SPEED + BASE_SPEED_R;
+        newSpeedL = IDLE_SPEED + BASE_SPEED_L;
+      }
+      else if (headingDelta < -ROTATION_DEADZONE)
+      {
+        newSpeedR = IDLE_SPEED - BASE_SPEED_R;
+        newSpeedL = IDLE_SPEED - BASE_SPEED_L;
+      }
+      else
+      {
+        //Manuever Complete
+        moveCommand = MOVE_IDLE;
+        moveComplete = 1;
+      }
          
-    analogWrite(MOTOR_R_PIN,newSpeedR);
-    analogWrite(MOTOR_L_PIN,newSpeedR);
-  }
-  else //Default mode
-  {
-    analogWrite(MOTOR_R_PIN,IDLE_SPEED);
-    analogWrite(MOTOR_L_PIN,IDLE_SPEED);
+      analogWrite(MOTOR_R_PIN,newSpeedR);
+      analogWrite(MOTOR_L_PIN,newSpeedL);
+    }
+    else //Default mode
+    {
+      analogWrite(MOTOR_R_PIN,IDLE_SPEED);
+      analogWrite(MOTOR_L_PIN,IDLE_SPEED);
+    }
   }
 }
 
@@ -176,6 +197,7 @@ ISR(TIMER0_COMPA_vect)
   {
     interruptFlag = 1;
     interruptCount = 0;
+    distanceTicks++;
   }
   interruptCount++;
 }
@@ -193,74 +215,52 @@ void setup ()
   pinMode (MOTOR_L_PIN, OUTPUT);
   analogWrite(MOTOR_R_PIN,IDLE_SPEED);
   analogWrite(MOTOR_L_PIN,IDLE_SPEED);
-  
-  //Configure SPI communication
-  SPI.begin();
-  SPI.setDataMode(3);
-  pinMode (SS_PIN, OUTPUT);
-  digitalWrite(SS_PIN, 1);
-  
-  //Zero Accelerometer
-  /*
-  digitalWrite(SS_PIN, 0); //Begin Trasmission
-  SPI.transfer(SPI_READ&SPI_MULTIBYTE&ACCEL_DATA); //Send Address
-  delay(1);
-  xDelta = SPI.transfer(SPI_IDLE); //Read X
-  xDelta |= SPI.transfer(SPI_IDLE) << 8;
-  yDelta = SPI.transfer(SPI_IDLE); //Read y
-  yDelta |= SPI.transfer(SPI_IDLE) << 8;
-  digitalWrite(SS_PIN, 1); //End transmission
-  delay(1);
-  digitalWrite(SS_PIN, 0); //Begin Trasmission
-  delay(1);
-  SPI.transfer(SPI_WRITE&SPI_MULTIBYTE&ACCEL_OFFSET); //Send Address
-  SPI.transfer((signed char)-xDelta); //Write x offset
-  SPI.transfer((signed char)-yDelta); //Write y offset
-  digitalWrite(SS_PIN, 1); //End transmission
-  delay(1);
-  */
-  digitalWrite(SS_PIN, 0); //Begin Trasmission
-  SPI.transfer(SPI_WRITE&DATA_FORMAT); //Write to power controller
-  SPI.transfer(0x01); //Turn off powersave mode
-  digitalWrite(SS_PIN, 1); //End transmission
-  delay(1);
-  digitalWrite(SS_PIN, 0); //Begin Trasmission
-  SPI.transfer(SPI_WRITE&0x2D); //Write to power controller
-  SPI.transfer(0x08); //Turn off powersave mode
-  digitalWrite(SS_PIN, 1); //End transmission
-  //Zero Gyro
   headingOffset = -504;
   
   //Setup real time services
   for (int i = 0; i < ROUTINES_PER_CYCLE; i++)
     routines[i] = 0;
     
-  routines[0] = &accelerometer_service;
-  routines[1] = &gyro_service;
+  routines[0] = &gyro_service;
+  routines[1] = &motor_service;
   routines[2] = &ping_service;
   routines[3] = &motor_service;
   
   //Begin real time clock
   init_interrupt_timer();
-  //Timer1.attachInterrupt(realtime_service_call);
-  //Timer1.initialize(INTERRUPT_PERIOD);
+
+ commands[0] = MOVE_FORWARD;
+ commands[1] = 38;
+ commands[2] = MOVE_TURN;
+ commands[3] = 270;
+ commands[4] = MOVE_TURN;
+ commands[5] = 180;
+ commands[6] = MOVE_IDLE;
+ commands[7] = 180;
+ 
+ moveComplete = 1;
 }
 
 void loop()
 {
   realtime_service_call();
-  moveCommand = MOVE_TURN;
+  //goalPosition = 38;
+  //moveCommand = MOVE_FORWARD;
   
-  Serial.println(headingDeg);
-  //Serial.println(headingDeg);
-  //Serial.println(testGyro);
-  //analogWrite(MOTOR_R_PIN,IDLE_SPEED+BASE_SPEED);
-  //analogWrite(MOTOR_L_PIN,IDLE_SPEED+BASE_SPEED);
-  //delay(2000);
-  //analogWrite(MOTOR_R_PIN,IDLE_SPEED);
-  //analogWrite(MOTOR_L_PIN,IDLE_SPEED);
-  //moveCommand = 0;
-  //while(1);
+  //goalHeading = 270;
+  //moveCommand = MOVE_TURN;
+  
+  
+  if (moveComplete == 1)
+  {
+    moveComplete = 0;
+    goalPosition = commands[commandID+1];
+    goalHeading = commands[commandID+1];
+    moveCommand = commands[commandID];
+    commandID = commandID+2;
+  }
+  
+  
 }
 
 
