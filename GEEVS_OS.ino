@@ -28,9 +28,11 @@
 #define GYRO_CYCLE 2048
 
 //Motor data
-#define MOVE_IDLE 0
+#define MOVE_STOP 0
 #define MOVE_TURN 1
 #define MOVE_FORWARD 2
+#define MOVE_WAIT 4
+#define MOVE_MEASURE 8
 #define IDLE_SPEED 47
 #define BASE_SPEED_R 9
 #define BASE_SPEED_L 9
@@ -46,8 +48,12 @@ signed long goalPosition = 0;
 volatile unsigned long distanceTicks = 0;
 volatile char interruptCount, interruptFlag, distanceReset, moveComplete = 0;
 unsigned char currentSpeedR = IDLE_SPEED, currentSpeedL = IDLE_SPEED;
-unsigned int commands[8];
-unsigned char commandID = 0;
+//unsigned int commands[16];
+//unsigned char commandID = 0;
+unsigned char board[1024];
+unsigned int target;
+unsigned int myPos = 66; // x = 2, y = 2 coords. (Y*32)+X = position on the board
+
 
 Ping pingLeft = Ping(2);
 Ping pingCenter = Ping(3);
@@ -107,7 +113,8 @@ void motor_service ()
     else
     {
       //Manuever complete
-      moveCommand = MOVE_IDLE;
+      moveCommand = MOVE_STOP;
+      distanceReset = 1;
       moveComplete = 1;
       
     }
@@ -124,9 +131,8 @@ void motor_service ()
     analogWrite(MOTOR_R_PIN,currentSpeedR);
     analogWrite(MOTOR_L_PIN,currentSpeedL); 
   }
-  else 
+  else
   {
-    distanceReset = 1;
     if (moveCommand == MOVE_TURN) //Turn Mode
     {
       headingDelta = goalHeading-headingDeg;
@@ -149,12 +155,40 @@ void motor_service ()
       else
       {
         //Manuever Complete
-        moveCommand = MOVE_IDLE;
+        moveCommand = MOVE_STOP;
+        distanceReset = 1;
         moveComplete = 1;
       }
          
       analogWrite(MOTOR_R_PIN,newSpeedR);
       analogWrite(MOTOR_L_PIN,newSpeedL);
+    }
+    else if (moveCommand == MOVE_WAIT)
+    {
+      if (distanceReset == 1)
+      {
+        distanceTicks = 0;
+        distanceReset = 0;  
+      }
+      
+      if (distanceTicks >= goalPosition)
+      {
+        moveCommand = MOVE_STOP;
+        distanceReset = 1;
+        moveComplete = 1;
+      }  
+      analogWrite(MOTOR_R_PIN,IDLE_SPEED);
+      analogWrite(MOTOR_L_PIN,IDLE_SPEED);
+    }
+    else if (moveCommand == MOVE_MEASURE)
+    {
+      pingLeft.fire();
+      pingRight.fire();
+      Serial.println(pingLeft.centimeters());
+      Serial.println(pingRight.centimeters());
+      moveCommand = MOVE_STOP;
+      distanceReset = 1;
+      moveComplete = 1;
     }
     else //Default mode
     {
@@ -226,17 +260,25 @@ void setup ()
   routines[2] = &ping_service;
   routines[3] = &motor_service;
   
+  for(int i =0; i < 1024;i++)
+  {
+    board[i] = 0;
+  }
   //Begin real time clock
   init_interrupt_timer();
 
- commands[0] = MOVE_FORWARD;
- commands[1] = 38;
- commands[2] = MOVE_TURN;
- commands[3] = 270;
- commands[4] = MOVE_TURN;
- commands[5] = 180;
- commands[6] = MOVE_IDLE;
- commands[7] = 180;
+ //commands[0] = MOVE_WAIT;
+ //commands[1] = 32;
+ //commands[2] = MOVE_FORWARD;
+ //commands[3] = 38;
+ //commands[4] = MOVE_WAIT;
+ //commands[5] = 16;
+ //commands[6] = MOVE_MEASURE;
+ //commands[7] = 0;
+ //commands[8] = MOVE_TURN;
+ //commands[9] = 180;
+ //commands[10] = MOVE_STOP;
+ //commands[11] = 0;
  
  moveComplete = 1;
 }
@@ -244,24 +286,333 @@ void setup ()
 void loop()
 {
   realtime_service_call();
+  
+  
   //goalPosition = 38;
   //moveCommand = MOVE_FORWARD;
-  
   //goalHeading = 270;
   //moveCommand = MOVE_TURN;
   
   
+  //If The robot is Stationary, It is OK to do path finding calculations
   if (moveComplete == 1)
   {
+    //Ping the ultrasonic sensors and update the board
+    board[myPos] = board[myPos] + 1; // update timestamp
+    if (board[myPos] == 255) // wipe the board, explored too much in same place
+    {
+      for(int i =0; i< 1024; i++)
+      {
+        board[i] = 0;
+      }
+    }
+    
+    moveCommand = MOVE_MEASURE;
     moveComplete = 0;
-    goalPosition = commands[commandID+1];
-    goalHeading = commands[commandID+1];
-    moveCommand = commands[commandID];
-    commandID = commandID+2;
-  }
+    // While pinging the sensors, continue to do other interrupts
+    while (moveComplete == 0)
+    {
+      realtime_service_call();
+    }
+    
+    if (headingDeg > 340 || headingDeg < 20)//NORTH, UP, towards y = 0
+    {
+      if (pingLeft.centimeters() < 100 && (myPos%32 - 1) >= 0)//WALL to the WEST (same y, x-1) so subtract 1 from current position
+      {
+        board[myPos-1] = 1;
+      }
+      else if (board[myPos-1] == 0 && (myPos%32 - 1) >= 0)
+      {
+        board[myPos-1] = 2;
+      }
+      
+      if(pingRight.centimeters() < 100 && (myPos%32 + 1) <= 31)//WALL to the EAST (same y, x+1) so add 1 to current position
+      {
+        board[myPos+1] = 1;
+      }
+      else if (board[myPos+1] == 0 && (myPos%32 + 1) <= 31)
+      {
+        board[myPos+1] = 2;
+      }
+      
+      if (pingCenter.centimeters() < 100 && myPos-32 >=0)//WALL to the NORTH (same x, y-1) so subtract 32 from current position
+      {
+        board[myPos-32] = 1;
+      }
+      else if (board[myPos-32] == 0 && myPos-32 >=0)
+      {
+        board[myPos-32] = 2;
+      }
+    } // end if (headingDeg > 340 || headingDeg < 20)//NORTH, UP, towards y = 0
+    else if (headingDeg > 70 && headingDeg < 110)//EAST, RIGHT, towards x = 31
+    {
+      if (pingLeft.centimeters() < 100 && myPos-32 >=0)//WALL to the NORTH (same x, y-1) so subtract 32 from current position
+      {
+        board[myPos-32] = 1;
+      }
+      else if (board[myPos-32] == 0 && myPos-32 >=0)
+      {
+        board[myPos-32] = 2;
+      }
+      
+      if(pingRight.centimeters() < 100 && myPos+32 <=1023)//WALL to the SOUTH (same x, y+1) so add 32 to current position 
+      {
+        board[myPos+32] = 1;
+      }
+      else if (board[myPos+32] == 0 && myPos+32 <=1023)
+      {
+        board[myPos+32] = 2;
+      }
+      
+      if (pingCenter.centimeters() < 100 && (myPos%32 + 1) <= 31)//WALL to the EAST (same y, x+1) so add 1 to current position
+      {
+        board[myPos+1] = 1;
+      }
+      else if (board[myPos+1] == 0 && (myPos%32 + 1) <= 31)
+      {
+        board[myPos+1] = 2;
+      }
+    } // end else if (headingDeg > 70 && headingDeg < 110)//EAST, RIGHT, towards x = 31
+    else if (headingDeg >160 && headingDeg <200)//SOUTH, DOWN, towards y = 31
+    {
+      if (pingLeft.centimeters() < 100 && (myPos%32 + 1) <= 31)//WALL to the EAST (same y, x+1) so add 1 to current position
+      {
+        board[myPos+1] = 1;
+      }
+      else if (board[myPos+1] == 0 && (myPos%32 + 1) <= 31)
+      {
+        board[myPos+1] = 2;
+      }
+      
+      if(pingRight.centimeters() < 100 && (myPos%32 - 1) >= 0)//WALL to the WEST (same y, x-1) so subtract 1 from current position
+      {
+        board[myPos-1] = 1;
+      }
+      else if (board[myPos-1] == 0 && (myPos%32 - 1) >= 0)
+      {
+        board[myPos-1] = 2;
+      }
+      
+      if (pingCenter.centimeters() < 100 && myPos+32 <=1023)//WALL to the SOUTH (same x, y+1) so add 32 to current position
+      {
+        board[myPos+32] = 1;
+      }
+      else if (board[myPos+32] == 0 && myPos+32 <=1023)
+      {
+        board[myPos+32] = 2;
+      }
+    } // end else if (headingDeg >160 && headingDeg <200)//SOUTH, DOWN, towards y = 31
+    else if (headingDeg >250 && headingDeg < 290)//WEST, LEFT, towards x = 0
+    {
+      if (pingLeft.centimeters() < 100 && myPos+32 <=1023)//WALL to the SOUTH (same x, y+1) so add 32 to current position
+      {
+        board[myPos+32] = 1;
+      }
+      else if (board[myPos+32] == 0 && myPos+32 <=1023)
+      {
+        board[myPos+32] = 2;
+      }
+      
+      if(pingRight.centimeters() < 100 && myPos-32 >=0)//WALL to the NORTH (same x, y-1) so subtract 32 from current position
+      {
+        board[myPos-32] = 1;
+      }
+      else if (board[myPos-32] == 0 && myPos-32 >=0)
+      {
+        board[myPos-32] = 2;
+      }
+      
+      if (pingCenter.centimeters() < 100 && (myPos%32 - 1) >= 0)//WALL to the WEST (same y, x-1) so subtract 1 from current position
+      {
+        board[myPos-1] = 1;
+      }
+      else if (board[myPos-1] == 0 && (myPos%32 - 1) >= 0)
+      {
+        board[myPos-1] = 2;
+      }
+    } // end else if (headingDeg >250 && headingDeg < 290)//WEST, LEFT, towards x = 0
+    
+
+    //find a new target (where board is #2) 
+    unsigned char smallestDistance = 200;
+    unsigned char tempDistance = 200;
+    char myX = myPos%32;
+    char myY = myPos/32;
+    char tempX;
+    char tempY;
+    char targetX;
+    char targetY;
+    for (int i = 0; i < 1024; i++)
+    {
+      realtime_service_call();
+      if(board[i] == 2)
+      {
+        tempX = i%32;
+        tempY = i/32;
+        tempDistance = abs(myX - tempX) + abs(myY - tempY);
+        if (tempDistance < smallestDistance)
+        {
+          smallestDistance = tempDistance;
+          target = i;
+          targetX = tempX;
+          targetY = tempY;
+        }
+      }
+    }
+    
+    //If there are no #2's, clear the board and start over
+    if (tempDistance == 200)//never found a target
+    {
+      // Loop over and start over completely
+      for(int i =0; i< 1024; i++)
+      {
+        realtime_service_call();
+        board[i] = 0;
+      }
+    }
+    else //Generate a path to that target(manhattan distance based on board timestamp)
+    {
+      //if target cant be reached (surrounded by walls, mark it as a wall and dont make a path)
+      if ((targetX - 1 >= 0 && board[(targetY*32)+(targetX-1)] == 1) || targetX-1 < 0)
+      {
+        if((targetX + 1 <= 31 && board[(targetY*32)+(targetX+1)] == 1) || targetX+1 > 31)
+        {
+          if((targetY + 1 <= 31 && board[((targetY+1)*32)+(targetX)] == 1) || targetY+1 > 31)
+          {
+            if((targetY - 1 >= 0 && board[((targetY-1)*32)+(targetX)] == 1) || targetY-1 < 0)//cannot reach target
+            {
+              board[target] = 1;
+            }
+          }
+          
+        }
+      }
+      
+      if (board[target] == 2)//target is good to make a path to
+      {
+        unsigned char timeStamps[4];
+        timeStamps[0] = 1; //WEST
+        timeStamps[1] = 1; //EAST
+        timeStamps[2] = 1; //NORTH
+        timeStamps[3] = 1; //SOUTH
+        char dir = 0;//defaults to WEST
+        //bias towards the direction of the target
+        
+        //look at surrounding tiles and pick the tile with the smallest timestamp to go to (a higher timestamp is like a wall) and add it to the path until target is reached
+        //if a tie, pick towards the target
+        
+        //look to the left(west)
+        if (myX-1 >=0 && board[(myY*32) + (myX-1)] >= 2)
+        {
+          timeStamps[0] = board[(myY*32) + (myX-1)];
+        }
+
+        //look to the right(east)
+        if (myX+1 <=31 && board[(myY*32) + (myX+1)] >=2)
+        {
+          timeStamps[1] = board[(myY*32) + (myX+1)];
+        }
+
+        //look above(north)
+        if (myY-1 >=0 && board[((myY-1)*32)+myX] >=2)
+        {
+          timeStamps[2] = board[((myY-1)*32) + myX];
+        }
+        //look below(south)
+        if (myY+1 >=0 && board[((myY+1)*32)+myX] >=2)
+        {
+          timeStamps[3] = board[((myY+1)*32) + myX];
+        }
+        
+
+        for (int j = 0; j <3; j++)//find smallest time stamp that is not 1. If a tie, pick towards the target
+        {
+          if (timeStamps[j+1] < timeStamps[dir])
+          {
+            dir = j+1;
+          }
+          else if(timeStamps[j+1] == timeStamps[dir])// a TIE has occured
+          {
+            if(myX - targetX >0 && dir == 0)//target is WEST, choose west (0)
+            {
+              dir = 0;
+            }
+            else if(myX - targetX < 0 && j+1 == 1)//target is EAST, choose east (1)
+            {
+              dir = 1;
+            }
+            else if(myY - targetY > 0 && j+1 == 2)//target is NORTH, choose north (2)
+            {
+              dir = 2;
+            }
+            else if(myY - targetY < 0 && j+1 == 3)//target is SOUTH, choose south(2)
+            {
+              dir = 3;
+            }
+          } // end else if(timeStamps[j+1]==timeStamps[dir])
+        }
+        
+        //determine which heading is the goal direction
+        if(dir == 0)//WEST
+        {
+         goalHeading = 270; 
+        }
+        else if(dir == 1)//EAST
+        {
+          goalHeading = 90;
+        }
+        else if(dir == 2)//NORTH
+        {
+          goalHeading = 0;
+        }
+        else if(dir == 3)//SOUTH
+        {
+          goalHeading = 180;
+        }
+        
+        //command stuff here
+        //Turn to goal heading
+        moveCommand = MOVE_TURN;
+        moveComplete = 0;
+        // While pinging the sensors, continue to do other interrupts
+        while(moveComplete == 0)
+        {
+          realtime_service_call();
+        }
+        
+        //Wait
+        goalPosition = 16;
+        moveComplete = 0;
+        // While pinging the sensors, continue to do other interrupts
+        while(moveComplete == 0)
+        {
+          realtime_service_call();
+        }
+        
+        //move into the tile
+        goalPosition = 38;
+        moveCommand = MOVE_FORWARD;
+        moveComplete = 0;
+        // While pinging the sensors, continue to do other interrupts
+        while(moveComplete == 0)
+        {
+          realtime_service_call();
+        }
+      } // Determined the target was not walled off
+    } // Target was found 
+  } // moveComplete==1
   
-  
-}
+  /* 
+    if (moveComplete == 1)
+    {
+      moveComplete = 0;
+      goalPosition = commands[commandID+1];
+      goalHeading = commands[commandID+1];
+      moveCommand = commands[commandID];
+      commandID = commandID+2;
+    }
+  */
+} // End of loop()
 
 
 /*
