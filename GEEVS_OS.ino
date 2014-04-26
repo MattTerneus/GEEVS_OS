@@ -598,6 +598,16 @@ void loop()
         {
           realtime_service_call();
         }
+        
+        
+        //Wait
+        goalPosition = 16;
+        moveComplete = 0;
+        // While pinging the sensors, continue to do other interrupts
+        while(moveComplete == 0)
+        {
+          realtime_service_call();
+        }
       } // Determined the target was not walled off
     } // Target was found 
   } // moveComplete==1
