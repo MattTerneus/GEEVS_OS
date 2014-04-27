@@ -1,5 +1,5 @@
-#include <TimerOne.h>
 #include <Ping.h>
+#include <TimerOne.h>
 #include <SPI.h>
 
 //System Values
@@ -34,8 +34,10 @@
 #define MOVE_WAIT 4
 #define MOVE_MEASURE 8
 #define IDLE_SPEED 47
-#define BASE_SPEED_R 9
-#define BASE_SPEED_L 9
+#define BASE_SPEED_R 7
+#define BASE_SPEED_L 6
+#define LEFT_TURN 7
+#define RIGHT_TURN 7
 #define ROTATION_DEADZONE 6
 
 
@@ -52,7 +54,7 @@ unsigned char currentSpeedR = IDLE_SPEED, currentSpeedL = IDLE_SPEED;
 //unsigned char commandID = 0;
 unsigned char board[1024];
 unsigned int target;
-unsigned int myPos = 66; // x = 2, y = 2 coords. (Y*32)+X = position on the board
+unsigned int myPos = 495; // x = 15, y = 15 coords. (Y*32)+X = position on the board
 
 
 Ping pingLeft = Ping(2);
@@ -144,13 +146,13 @@ void motor_service ()
         
       if (headingDelta > ROTATION_DEADZONE)
       {
-        newSpeedR = IDLE_SPEED + BASE_SPEED_R;
-        newSpeedL = IDLE_SPEED + BASE_SPEED_L;
+        newSpeedR = IDLE_SPEED + RIGHT_TURN;
+        newSpeedL = IDLE_SPEED + LEFT_TURN;
       }
       else if (headingDelta < -ROTATION_DEADZONE)
       {
-        newSpeedR = IDLE_SPEED - BASE_SPEED_R;
-        newSpeedL = IDLE_SPEED - BASE_SPEED_L;
+        newSpeedR = IDLE_SPEED - RIGHT_TURN;
+        newSpeedL = IDLE_SPEED - LEFT_TURN;
       }
       else
       {
@@ -264,6 +266,8 @@ void setup ()
   {
     board[i] = 0;
   }
+  board[myPos] = 2;
+  
   //Begin real time clock
   init_interrupt_timer();
 
@@ -307,21 +311,20 @@ void loop()
       }
     }
     
-    moveCommand = MOVE_MEASURE;
     moveComplete = 0;
+    moveCommand = MOVE_MEASURE;
     // While pinging the sensors, continue to do other interrupts
     while (moveComplete == 0)
     {
       realtime_service_call();
     }
-    
     if (headingDeg > 340 || headingDeg < 20)//NORTH, UP, towards y = 0
     {
       if (pingLeft.centimeters() < 100 && (myPos%32 - 1) >= 0)//WALL to the WEST (same y, x-1) so subtract 1 from current position
       {
         board[myPos-1] = 1;
       }
-      else if (board[myPos-1] == 0 && (myPos%32 - 1) >= 0)
+      else if ((board[myPos-1] == 0 || board[myPos-1]==1) && (myPos%32 - 1) >= 0)
       {
         board[myPos-1] = 2;
       }
@@ -330,7 +333,7 @@ void loop()
       {
         board[myPos+1] = 1;
       }
-      else if (board[myPos+1] == 0 && (myPos%32 + 1) <= 31)
+      else if ((board[myPos+1] == 0 || board[myPos+1]==1) && (myPos%32 + 1) <= 31)
       {
         board[myPos+1] = 2;
       }
@@ -339,7 +342,7 @@ void loop()
       {
         board[myPos-32] = 1;
       }
-      else if (board[myPos-32] == 0 && myPos-32 >=0)
+      else if ((board[myPos-32] == 0 || board[myPos-32]==1) && myPos-32 >=0)
       {
         board[myPos-32] = 2;
       }
@@ -350,7 +353,7 @@ void loop()
       {
         board[myPos-32] = 1;
       }
-      else if (board[myPos-32] == 0 && myPos-32 >=0)
+      else if ((board[myPos-32] == 0 || board[myPos-32]==1) && myPos-32 >=0)
       {
         board[myPos-32] = 2;
       }
@@ -359,7 +362,7 @@ void loop()
       {
         board[myPos+32] = 1;
       }
-      else if (board[myPos+32] == 0 && myPos+32 <=1023)
+      else if ((board[myPos+32] == 0 || board[myPos+32]==1) && myPos+32 <=1023)
       {
         board[myPos+32] = 2;
       }
@@ -368,7 +371,7 @@ void loop()
       {
         board[myPos+1] = 1;
       }
-      else if (board[myPos+1] == 0 && (myPos%32 + 1) <= 31)
+      else if ((board[myPos+1] == 0 || board[myPos+1]==1) && (myPos%32 + 1) <= 31)
       {
         board[myPos+1] = 2;
       }
@@ -379,7 +382,7 @@ void loop()
       {
         board[myPos+1] = 1;
       }
-      else if (board[myPos+1] == 0 && (myPos%32 + 1) <= 31)
+      else if ((board[myPos+1] == 0 || board[myPos+1]==1) && (myPos%32 + 1) <= 31)
       {
         board[myPos+1] = 2;
       }
@@ -388,7 +391,7 @@ void loop()
       {
         board[myPos-1] = 1;
       }
-      else if (board[myPos-1] == 0 && (myPos%32 - 1) >= 0)
+      else if ((board[myPos-1] == 0 || board[myPos-1]==1) && (myPos%32 - 1) >= 0)
       {
         board[myPos-1] = 2;
       }
@@ -397,7 +400,7 @@ void loop()
       {
         board[myPos+32] = 1;
       }
-      else if (board[myPos+32] == 0 && myPos+32 <=1023)
+      else if ((board[myPos+32] == 0 || board[myPos+32]==1) && myPos+32 <=1023)
       {
         board[myPos+32] = 2;
       }
@@ -408,7 +411,7 @@ void loop()
       {
         board[myPos+32] = 1;
       }
-      else if (board[myPos+32] == 0 && myPos+32 <=1023)
+      else if ((board[myPos+32] == 0 || board[myPos+32]==1) && myPos+32 <=1023)
       {
         board[myPos+32] = 2;
       }
@@ -417,7 +420,7 @@ void loop()
       {
         board[myPos-32] = 1;
       }
-      else if (board[myPos-32] == 0 && myPos-32 >=0)
+      else if ((board[myPos-32] == 0 || board[myPos-32]==1) && myPos-32 >=0)
       {
         board[myPos-32] = 2;
       }
@@ -426,13 +429,11 @@ void loop()
       {
         board[myPos-1] = 1;
       }
-      else if (board[myPos-1] == 0 && (myPos%32 - 1) >= 0)
+      else if ((board[myPos-1] == 0 || board[myPos-1]==1) && (myPos%32 - 1) >= 0)
       {
         board[myPos-1] = 2;
       }
     } // end else if (headingDeg >250 && headingDeg < 290)//WEST, LEFT, towards x = 0
-    
-
     //find a new target (where board is #2) 
     unsigned char smallestDistance = 200;
     unsigned char tempDistance = 200;
@@ -459,7 +460,6 @@ void loop()
         }
       }
     }
-    
     //If there are no #2's, clear the board and start over
     if (tempDistance == 200)//never found a target
     {
@@ -527,11 +527,15 @@ void loop()
 
         for (int j = 0; j <3; j++)//find smallest time stamp that is not 1. If a tie, pick towards the target
         {
-          if (timeStamps[j+1] < timeStamps[dir])
+          if (timeStamps[j+1] < timeStamps[dir] && timeStamps[j+1] >=2)
           {
             dir = j+1;
           }
-          else if(timeStamps[j+1] == timeStamps[dir])// a TIE has occured
+          else if (timeStamps[dir] == 1 && timeStamps[j+1] >=2)
+          {
+            dir = j+1;
+          }
+          else if(timeStamps[j+1] == timeStamps[dir] && timeStamps[j+1] >=2)// a TIE has occured
           {
             if(myX - targetX >0 && dir == 0)//target is WEST, choose west (0)
             {
@@ -569,7 +573,7 @@ void loop()
         {
           goalHeading = 180;
         }
-        
+    //    Serial.print("Before Move Turn");
         //command stuff here
         //Turn to goal heading
         moveCommand = MOVE_TURN;
@@ -579,35 +583,80 @@ void loop()
         {
           realtime_service_call();
         }
-        
+  //      Serial.print("Before Wait");
         //Wait
         goalPosition = 16;
+        moveCommand = MOVE_WAIT;
         moveComplete = 0;
         // While pinging the sensors, continue to do other interrupts
         while(moveComplete == 0)
         {
           realtime_service_call();
         }
-        
+//        Serial.print("Before Move Forward");
+
+       
+
         //move into the tile
-        goalPosition = 38;
-        moveCommand = MOVE_FORWARD;
-        moveComplete = 0;
-        // While pinging the sensors, continue to do other interrupts
-        while(moveComplete == 0)
+        if (pingCenter.centimeters() >100)
         {
-          realtime_service_call();
+          goalPosition = 48;
+          moveCommand = MOVE_FORWARD;
+          moveComplete = 0;
+          // While pinging the sensors, continue to do other interrupts
+          while(moveComplete == 0)
+          {
+            realtime_service_call();
+          }
+          
+          //update position on board
+          if(dir == 0)//WEST
+          {
+            myPos = myPos-1;
+          }
+          else if(dir == 1)//EAST
+          {
+            myPos = myPos+1;
+          }
+          else if(dir == 2)//NORTH
+          {
+            myPos = myPos - 32;
+          }
+          else if(dir == 3)//SOUTH
+          {
+            myPos = myPos + 32;
+          }
         }
         
-        
+        //Serial.print("Before Move Wait");
         //Wait
         goalPosition = 16;
+        moveCommand = MOVE_WAIT;
         moveComplete = 0;
         // While pinging the sensors, continue to do other interrupts
         while(moveComplete == 0)
         {
           realtime_service_call();
         }
+        
+        moveCommand = MOVE_TURN;
+        moveComplete = 0;
+        // While pinging the sensors, continue to do other interrupts
+        while(moveComplete == 0)
+        {
+          realtime_service_call();
+        }
+  //      Serial.print("Before Wait");
+        //Wait
+        goalPosition = 16;
+        moveCommand = MOVE_WAIT;
+        moveComplete = 0;
+        // While pinging the sensors, continue to do other interrupts
+        while(moveComplete == 0)
+        {
+          realtime_service_call();
+        }
+        
       } // Determined the target was not walled off
     } // Target was found 
   } // moveComplete==1
