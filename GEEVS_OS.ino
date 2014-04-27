@@ -573,7 +573,6 @@ void loop()
         {
           goalHeading = 180;
         }
-    //    Serial.print("Before Move Turn");
         //command stuff here
         //Turn to goal heading
         moveCommand = MOVE_TURN;
@@ -583,7 +582,6 @@ void loop()
         {
           realtime_service_call();
         }
-  //      Serial.print("Before Wait");
         //Wait
         goalPosition = 16;
         moveCommand = MOVE_WAIT;
@@ -592,10 +590,7 @@ void loop()
         while(moveComplete == 0)
         {
           realtime_service_call();
-        }
-//        Serial.print("Before Move Forward");
-
-       
+        }       
 
         //move into the tile
         if (pingCenter.centimeters() >100)
@@ -627,8 +622,7 @@ void loop()
             myPos = myPos + 32;
           }
         }
-        
-        //Serial.print("Before Move Wait");
+
         //Wait
         goalPosition = 16;
         moveCommand = MOVE_WAIT;
@@ -646,7 +640,7 @@ void loop()
         {
           realtime_service_call();
         }
-  //      Serial.print("Before Wait");
+
         //Wait
         goalPosition = 16;
         moveCommand = MOVE_WAIT;
