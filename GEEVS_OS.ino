@@ -34,8 +34,8 @@
 #define MOVE_WAIT 4
 #define MOVE_MEASURE 8
 #define IDLE_SPEED 47
-#define BASE_SPEED_R 7
-#define BASE_SPEED_L 6
+#define BASE_SPEED_R 9
+#define BASE_SPEED_L 8
 #define LEFT_TURN 7
 #define RIGHT_TURN 7
 #define ROTATION_DEADZONE 6
