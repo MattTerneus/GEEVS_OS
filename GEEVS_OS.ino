@@ -1,5 +1,5 @@
-#include <Ping.h>
 #include <TimerOne.h>
+#include <Ping.h>
 #include <SPI.h>
 
 //System Values
@@ -435,224 +435,154 @@ void loop()
       }
     } // end else if (headingDeg >250 && headingDeg < 290)//WEST, LEFT, towards x = 0
     //find a new target (where board is #2) 
-    unsigned char smallestDistance = 200;
-    unsigned char tempDistance = 200;
     char myX = myPos%32;
     char myY = myPos/32;
-    char tempX;
-    char tempY;
-    char targetX;
-    char targetY;
-    for (int i = 0; i < 1024; i++)
+          
+    unsigned char timeStamps[4];
+    timeStamps[0] = 1; //WEST
+    timeStamps[1] = 1; //EAST
+    timeStamps[2] = 1; //NORTH
+    timeStamps[3] = 1; //SOUTH
+    char dir = 0;//defaults to WEST
+    if(goalHeading >= 340 || goalHeading <= 20)
+      dir = 2;
+    else if(goalHeading >= 70 && goalHeading <= 110)
+      dir = 1;
+    else if(goalHeading >= 160 && goalHeading <= 200)
+      dir = 3;    
+    //look at surrounding tiles and pick the tile with the smallest timestamp to go to if a tie, pick forwards
+        
+    //look to the left(west)
+    if (myX-1 >=0 && board[(myY*32) + (myX-1)] >= 2)
+    {
+      timeStamps[0] = board[(myY*32) + (myX-1)];
+    }
+
+    //look to the right(east)
+    if (myX+1 <=31 && board[(myY*32) + (myX+1)] >=2)
+    {
+      timeStamps[1] = board[(myY*32) + (myX+1)];
+    }
+
+    //look above(north)
+    if (myY-1 >=0 && board[((myY-1)*32)+myX] >=2)
+    {
+      timeStamps[2] = board[((myY-1)*32) + myX];
+    }
+    //look below(south)
+    if (myY+1 >=0 && board[((myY+1)*32)+myX] >=2)
+    {
+      timeStamps[3] = board[((myY+1)*32) + myX];
+    }
+    
+    // find the smallest timestamp greater than 1
+    // the default direction SHOULD be in direction the robot is facing, so only update the smallest if it is smaller (not equal to)
+    unsigned char smallestTimestamp = timeStamps[dir];
+    for (int j = 0; j <3; j++)
+    {
+      if(timeStamps[j] < smallestTimestamp && timeStamps[j] > 1)
+      {
+        smallestTimestamp = timeStamps[j];
+        dir = j;
+      }
+    }
+    
+    //determine which heading is the goal direction
+    if(dir == 0)//WEST
+    {
+     goalHeading = 270; 
+    }
+    else if(dir == 1)//EAST
+    {
+      goalHeading = 90;
+    }
+    else if(dir == 2)//NORTH
+    {
+      goalHeading = 0;
+    }
+    else if(dir == 3)//SOUTH
+    {
+      goalHeading = 180;
+    }
+    //command stuff here
+    
+    //Turn to goal heading
+    moveCommand = MOVE_TURN;
+    moveComplete = 0;
+    // While pinging the sensors, continue to do other interrupts
+    while(moveComplete == 0)
     {
       realtime_service_call();
-      if(board[i] == 2)
-      {
-        tempX = i%32;
-        tempY = i/32;
-        tempDistance = abs(myX - tempX) + abs(myY - tempY);
-        if (tempDistance < smallestDistance)
-        {
-          smallestDistance = tempDistance;
-          target = i;
-          targetX = tempX;
-          targetY = tempY;
-        }
-      }
     }
-    //If there are no #2's, clear the board and start over
-    if (tempDistance == 200)//never found a target
+    
+    //Wait
+    goalPosition = 16;
+    moveCommand = MOVE_WAIT;
+    moveComplete = 0;
+    // While pinging the sensors, continue to do other interrupts
+    while(moveComplete == 0)
     {
-      // Loop over and start over completely
-      for(int i =0; i< 1024; i++)
+      realtime_service_call();
+    }       
+
+    //move into the tile
+    if (pingCenter.centimeters() >100)
+    {
+      goalPosition = 48;
+      moveCommand = MOVE_FORWARD;
+      moveComplete = 0;
+      // While pinging the sensors, continue to do other interrupts
+      while(moveComplete == 0)
       {
         realtime_service_call();
-        board[i] = 0;
-      }
-    }
-    else //Generate a path to that target(manhattan distance based on board timestamp)
-    {
-      //if target cant be reached (surrounded by walls, mark it as a wall and dont make a path)
-      if ((targetX - 1 >= 0 && board[(targetY*32)+(targetX-1)] == 1) || targetX-1 < 0)
-      {
-        if((targetX + 1 <= 31 && board[(targetY*32)+(targetX+1)] == 1) || targetX+1 > 31)
-        {
-          if((targetY + 1 <= 31 && board[((targetY+1)*32)+(targetX)] == 1) || targetY+1 > 31)
-          {
-            if((targetY - 1 >= 0 && board[((targetY-1)*32)+(targetX)] == 1) || targetY-1 < 0)//cannot reach target
-            {
-              board[target] = 1;
-            }
-          }
-          
-        }
       }
       
-      if (board[target] == 2)//target is good to make a path to
+      //update position on board
+      if(dir == 0)//WEST
       {
-        unsigned char timeStamps[4];
-        timeStamps[0] = 1; //WEST
-        timeStamps[1] = 1; //EAST
-        timeStamps[2] = 1; //NORTH
-        timeStamps[3] = 1; //SOUTH
-        char dir = 0;//defaults to WEST
-        //bias towards the direction of the target
-        
-        //look at surrounding tiles and pick the tile with the smallest timestamp to go to (a higher timestamp is like a wall) and add it to the path until target is reached
-        //if a tie, pick towards the target
-        
-        //look to the left(west)
-        if (myX-1 >=0 && board[(myY*32) + (myX-1)] >= 2)
-        {
-          timeStamps[0] = board[(myY*32) + (myX-1)];
-        }
+        myPos = myPos-1;
+      }
+      else if(dir == 1)//EAST
+      {
+        myPos = myPos+1;
+      }
+      else if(dir == 2)//NORTH
+      {
+        myPos = myPos - 32;
+      }
+      else if(dir == 3)//SOUTH
+      {
+        myPos = myPos + 32;
+      }
+    }
 
-        //look to the right(east)
-        if (myX+1 <=31 && board[(myY*32) + (myX+1)] >=2)
-        {
-          timeStamps[1] = board[(myY*32) + (myX+1)];
-        }
+    //Wait
+    goalPosition = 16;
+    moveCommand = MOVE_WAIT;
+    moveComplete = 0;
+    // While pinging the sensors, continue to do other interrupts
+    while(moveComplete == 0)
+    {
+      realtime_service_call();
+    }
+    
+    moveCommand = MOVE_TURN;
+    moveComplete = 0;
+    // While pinging the sensors, continue to do other interrupts
+    while(moveComplete == 0)
+    {
+      realtime_service_call();
+    }
 
-        //look above(north)
-        if (myY-1 >=0 && board[((myY-1)*32)+myX] >=2)
-        {
-          timeStamps[2] = board[((myY-1)*32) + myX];
-        }
-        //look below(south)
-        if (myY+1 >=0 && board[((myY+1)*32)+myX] >=2)
-        {
-          timeStamps[3] = board[((myY+1)*32) + myX];
-        }
-        
-
-        for (int j = 0; j <3; j++)//find smallest time stamp that is not 1. If a tie, pick towards the target
-        {
-          if (timeStamps[j+1] < timeStamps[dir] && timeStamps[j+1] >=2)
-          {
-            dir = j+1;
-          }
-          else if (timeStamps[dir] == 1 && timeStamps[j+1] >=2)
-          {
-            dir = j+1;
-          }
-          else if(timeStamps[j+1] == timeStamps[dir] && timeStamps[j+1] >=2)// a TIE has occured
-          {
-            if(myX - targetX >0 && dir == 0)//target is WEST, choose west (0)
-            {
-              dir = 0;
-            }
-            else if(myX - targetX < 0 && j+1 == 1)//target is EAST, choose east (1)
-            {
-              dir = 1;
-            }
-            else if(myY - targetY > 0 && j+1 == 2)//target is NORTH, choose north (2)
-            {
-              dir = 2;
-            }
-            else if(myY - targetY < 0 && j+1 == 3)//target is SOUTH, choose south(2)
-            {
-              dir = 3;
-            }
-          } // end else if(timeStamps[j+1]==timeStamps[dir])
-        }
-        
-        //determine which heading is the goal direction
-        if(dir == 0)//WEST
-        {
-         goalHeading = 270; 
-        }
-        else if(dir == 1)//EAST
-        {
-          goalHeading = 90;
-        }
-        else if(dir == 2)//NORTH
-        {
-          goalHeading = 0;
-        }
-        else if(dir == 3)//SOUTH
-        {
-          goalHeading = 180;
-        }
-        //command stuff here
-        //Turn to goal heading
-        moveCommand = MOVE_TURN;
-        moveComplete = 0;
-        // While pinging the sensors, continue to do other interrupts
-        while(moveComplete == 0)
-        {
-          realtime_service_call();
-        }
-        //Wait
-        goalPosition = 16;
-        moveCommand = MOVE_WAIT;
-        moveComplete = 0;
-        // While pinging the sensors, continue to do other interrupts
-        while(moveComplete == 0)
-        {
-          realtime_service_call();
-        }       
-
-        //move into the tile
-        if (pingCenter.centimeters() >100)
-        {
-          goalPosition = 48;
-          moveCommand = MOVE_FORWARD;
-          moveComplete = 0;
-          // While pinging the sensors, continue to do other interrupts
-          while(moveComplete == 0)
-          {
-            realtime_service_call();
-          }
-          
-          //update position on board
-          if(dir == 0)//WEST
-          {
-            myPos = myPos-1;
-          }
-          else if(dir == 1)//EAST
-          {
-            myPos = myPos+1;
-          }
-          else if(dir == 2)//NORTH
-          {
-            myPos = myPos - 32;
-          }
-          else if(dir == 3)//SOUTH
-          {
-            myPos = myPos + 32;
-          }
-        }
-
-        //Wait
-        goalPosition = 16;
-        moveCommand = MOVE_WAIT;
-        moveComplete = 0;
-        // While pinging the sensors, continue to do other interrupts
-        while(moveComplete == 0)
-        {
-          realtime_service_call();
-        }
-        
-        moveCommand = MOVE_TURN;
-        moveComplete = 0;
-        // While pinging the sensors, continue to do other interrupts
-        while(moveComplete == 0)
-        {
-          realtime_service_call();
-        }
-
-        //Wait
-        goalPosition = 16;
-        moveCommand = MOVE_WAIT;
-        moveComplete = 0;
-        // While pinging the sensors, continue to do other interrupts
-        while(moveComplete == 0)
-        {
-          realtime_service_call();
-        }
-        
-      } // Determined the target was not walled off
-    } // Target was found 
+    //Wait
+    goalPosition = 16;
+    moveCommand = MOVE_WAIT;
+    moveComplete = 0;
+    // While pinging the sensors, continue to do other interrupts
+    while(moveComplete == 0)
+    {
+      realtime_service_call();
+    }
   } // moveComplete==1
   
   /* 
